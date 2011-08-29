@@ -1,0 +1,278 @@
+Polycube Solver
+Marc Lepage
+
+
+OVERVIEW
+
+This Lua program solves cubic dissection problems by encoding them into a bit matrix and applying Knuth's Algorithm X. It was written in 2009.
+
+
+USAGE
+
+Run the program as follows:
+
+	lua polycube-solver.lua problems/toy3.txt
+
+Lua binaries are provided for Mac OS X and Windows.
+
+
+PROBLEM
+
+The program solves the problem of packing polycubic pieces into a three-dimensional box.
+
+	http://en.wikipedia.org/wiki/Polycube
+
+A typical problem is specified as follows:
+
+	problem = {
+		box = { 3, 3, 1 },
+		pieces = { "1_", "3L", "V_" },
+		lock = "V_"
+	}
+
+This instructs the program to fill a 3x3x1 box with three pieces: the monocube, the L-shaped tricube, and the V-shaped pentacube. In an attempt to break symmetry to avoid duplicate solutions, the V piece is locked to one orientation.
+
+A "lock" piece is restricted to "lockcount" orientations, or one orientation if the latter is not specified.
+
+A "constrain" piece is confined to the origin octant of the box. It's also possible to specify "constrain_x," "constrain_y," and "constrain_z" independently.
+
+Consult the table "pieces" in the source code for the definitions of pre-defined pieces; the provided examples demonstrate how to define problems.
+
+
+BOX
+
+The box is dissected into cubes. These are addressed by a coordinate system which is right-handed and zero-based.
+
+Looking down into the box:
+
+	  +--------+
+	  |        |
+	^ |        |	z fills the box
+	| |        |	from bottom to top
+	y +--------+
+	  x -->
+
+
+PIECES
+
+The pieces have their cubes specified in this coordinate system. For example, the L-shaped tricube is defined as follows:
+
+	{ name="3L", cubes = { {0,1,0},{0,0,0},{1,0,0} } }
+
+This means it lies flat at the origin, with cubes pointing out along the x and y axes.
+
+	+--+
+	|01|
+	+--+--+		showing just the
+	|00|10|		x and y coordinates
+	+--+--+
+
+A piece can be considered in any of 24 orientations, by performing a series of axis to axis rotations. Due to symmetry, these may not be distinct. The program detects this and omits any duplicate orientations.
+
+
+BIT MATRIX MODULE
+
+The program includes a module for manipulating matrices of bits. This relies on a bitwise operations extension called Lua BitOp.
+
+	http://bitop.luajit.org/
+
+A bit matrix contains M rows by N columns of values which can be 0 or 1. This is represented by a table which contains a hash part and an array part.
+
+The hash part contains matrix metadata, such as its dimensions. This part does not interfere with the array part, so array iteration conveniently ignores it. This means users can extend the hash part with additional user-specific information.
+
+The array part contains matrix data, which is its values. There is a table for each row, each of which contains a number for each group of 32 columns.
+
+For example, a 5x50 matrix of zeroes is represented like this:
+
+	mat = { m=5, n=50, {0,0}, {0,0}, {0,0}, {0,0}, {0,0} }
+
+The program uses consistent variable names for indexing into the matrix:
+
+	i --> row index from 1 to M
+	j --> column index from 1 to N
+	k --> column group index from 1 to ceil(N/32)
+	l --> bit index within the column group from 0 to 31
+
+For example, to set position 3,40 in the above matrix, the module manipulates the third row, second number, 8th bit via these calculations:
+
+	i = 3
+	j = 40
+	k = ceil(j/32) = 2
+	l = (j-1)%32 = 7
+
+So the module shifts the value 1 left by 7 to OR it into the 8th bit:
+
+	mat[i][k] = bor(mat[i][k], lshift(1, l))
+
+Since 2^7=128, this yields the following matrix:
+
+	mat = { m=5, n=50, {0,0}, {0,0}, {0,128}, {0,0}, {0,0} }
+
+To clear a bit, the module uses the complement to AND every bit excepting the 8th:
+
+	mat[i][k] = band(mat[i][k], bnot(lshift(1, l)))
+
+The module supports inserting and removing rows and columns from a bit matrix. newly inserted values are zero. The matrix will remember its dimensions even if it becomes empty by removing the last row or column. For example, removing the column of a 4x1 matrix will produce a 4x0 matrix (with no values); re-inserting a column will restore it to a 4x1 matrix (with zero values in the restored column).
+
+
+PROBLEM MATRIX
+
+The problem is encoded into an M by N bit matrix as follows.
+
+The matrix will have a column for each cube in the box (in Z-major order), and a column for each piece (in the order specified by the problem). Therefore a row defines a particular placement of a particular piece, by specifying which piece and which cubes it occupies in that placement.
+
+When a piece is added to the problem, a row is added for each placement of the piece (all distinct orientations in all legal positions).
+
+For example, the above problem is encoded into a 26x12 matrix:
+
+	100000000100	\
+	010000000100	|
+	001000000100	|
+	000100000100	|
+	000010000100	|	monocube
+	000001000100	|
+	000000100100	|
+	000000010100	|
+	000000001100	/
+	110100000010	\
+	011010000010	|
+	000110100010	|
+	000011010010	|
+	110010000010	|
+	011001000010	|
+	000110010010	|
+	000011001010	|	L tricube
+	010110000010	|
+	001011000010	|
+	000010110010	|
+	000001011010	|
+	100110000010	|
+	010011000010	|
+	000100110010	|
+	000010011010	/
+	111100100001	}	V pentacube
+
+The first nine columns represent the cube positions in the 3x3 box.
+
+The monocube is denoted by the third last column. It has only one distinct orientation, but can be placed in nine positions.
+
+The L-shaped tricube is denoted by the second last column. It has many orientations but only the four flat ones fit in the box, each in four positions. The orientations are expressed as different bit patterns: 1101, 11001, 1011, and 10011.
+
+The V-shaped pentacube is denoted by the last column. It is locked to one orientation, and only fits in one position.
+
+The problem matrix has additional metadata. It has a header which stores the column names (cube coordinates and piece names). It also has a list of counts of values set for each column. As the program copies and manipulates matrices, it maintains this additional metadata.
+
+The source code uses function "xyz2j" to map box coordinates to a matrix column index.
+
+
+SOLUTION MATRIX
+
+The solution matrix has the same columns (and therefore header) as the problem matrix. It does not need column counts, and starts out with no rows.
+
+As a solution is built, rows are added which encode particular placements of particular pieces. A solution has only one value set in each column, which respects the fact that a cube cannot be occupied by more than one piece, and a piece cannot be placed more than once.
+
+
+ALGORITHM X
+
+"Donald Knuth's Algorithm X is a recursive, nondeterministic, depth-first, backtracking algorithm that finds all solutions to the exact cover problem represented by a matrix A consisting of 0s and 1s. The goal is to select a subset of the rows so that the digit 1 appears in each column exactly once."
+
+	http://en.wikipedia.org/wiki/Knuth's_Algorithm_X
+
+The source code implements the algorithm in a function called "solve" which takes a problem matrix, a solution matrix, and a function to call when a solution is found.
+
+In brief, the algorithm successively chooses columns to build the solution. In this problem, a column represents either a box cube to fill with remaining pieces, or a piece to place from remaining placements. Having chosen a column, the algorithm considers each row that has a value set in that column. That is, it considers all remaining piece placements for a cube, or all remaining placements for a piece.
+
+Each such row is copied into the solution, and the problem matrix is reduced by removing all rows which have colliding values set, and then removing the column. This represents removing all remaining placements which collide with the newly placed piece, and all remaining placements of the that piece.
+
+The algorithm recurses by choosing the next column. Heuristically, it chooses the next column by finding the one with a minimum count. This represents choosing a box cube that is hardest to fill, or choosing a piece which is hardest to place. This heuristic attempts to reduce unnecessary backtracking.
+
+
+SOLUTIONS
+
+Solutions are printed as Z slices of the cube, such that Z goes from left to right. Within a slice, Y goes from bottom to top, and X goes from left to right.
+
+For example, here are the four solutions to the above problem:
+
+	Solution 1	Solution 2
+	+--+--+--+	+--+--+--+
+	|V_|3L|3L|	|V_|3L|1_|
+	+--+--+--+	+--+--+--+
+	|V_|1_|3L|	|V_|3L|3L|
+	+--+--+--+	+--+--+--+
+	|V_|V_|V_|	|V_|V_|V_|
+	+--+--+--+	+--+--+--+
+
+	Solution 3	Solution 4
+	+--+--+--+	+--+--+--+
+	|V_|1_|3L|	|V_|3L|3L|
+	+--+--+--+	+--+--+--+
+	|V_|3L|3L|	|V_|3L|1_|
+	+--+--+--+	+--+--+--+
+	|V_|V_|V_|	|V_|V_|V_|
+	+--+--+--+	+--+--+--+
+
+Note that solutions 3 and 4 are reflections of each other. The program has not yet been enhanced to automatically detect and omit solutions which are rotations or reflections of each other.
+
+For comparison, the Bedlam Cube problem yields a 3774x77 problem matrix, and solutions such as:
+
+	Solution 1
+	+--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+	|4>|4>|W_|V2|  |4>|W_|W_|T1|  |W_|W_|T1|T1|  |J4|J4|S1|T1|
+	+--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+	|L2|4>|X_|V2|  |J4|S1|V2|V2|  |J4|S1|S1|T1|  |J4|S2|S1|F_|
+	+--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+	|L2|X_|X_|X_|  |L2|L1|V2|F_|  |L3|S2|T2|F_|  |S2|S2|T2|F_|
+	+--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+	|L2|L2|X_|L1|  |L3|L1|L1|L1|  |L3|L3|L3|F_|  |S2|T2|T2|T2|
+	+--+--+--+--+  +--+--+--+--+  +--+--+--+--+  +--+--+--+--+
+
+
+PERFORMANCE
+
+On a MacBook Air (2011) with Intel Core i7, the Soma Cube problem runs in just under 8s using Lua 5.1.4, and just under 1s using LuaJIT 2.0.0-beta8. The Bedlam Cube problem runs in just under 2h using LuaJIT.
+
+
+MORE RESULTS
+
+Following are some sample results.
+
+Note that the pentacube 3x4x5 results are not yet correct, since the program cannot detect non-distinct solutions.
+
+Also note that the Soma Cube problem reports twice as many solutions, since each solution has a mirror image where the two chiral 3D pieces swap roles.
+
+Pentomino with Square 8x8: 16146 solutions
+Pentomino 6x10:             2339 solutions
+Pentomino 5x12:             1010 solutions
+Pentomino 4x15:              368 solutions
+Pentomino 3x20:                2 solutions
+Pentacube 3x4x5: (should be 3940 but not yet working)
+Pentacube 2x5x6:             264 solutions
+Pentacube 2x3x10:             12 solutions
+http://en.wikipedia.org/wiki/Pentomino
+
+Soma Cube: 480 solutions (240 are reflections)
+http://en.wikipedia.org/wiki/Soma_cube
+
+Bedlam Cube: 19186 solutions
+http://en.wikipedia.org/wiki/Bedlam_cube
+
+Big Brother Cube: 14177 solutions
+http://scottkurowski.com/BigBroCube/
+
+
+FUTURE ENHANCEMENTS
+
+The program should be enhanced to detect non-distinct solutions.
+
+It should also have more predefined pieces (e.g. hexominoes) and problems (e.g. Tetris Cube), particularly those where pieces are not polycubes.
+
+
+FURTHER READING
+
+Previously (in 2005) I implemented backtracking without using Algorithm X, to solve the pentomino with square tiling of the checkerboard. The C++ code is available here:
+
+	http://github.com/mlepage/pentomino-solver
+
+Earlier in 2011, this excellent article was published. It covers many details concerning the implementation of backtracking algorithms (including Algorithm X and Dancing Links) for solving cubic dissection problems.
+
+	http://www.mattbusche.org/blog/article/polycube/

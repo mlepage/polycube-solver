@@ -1,0 +1,7 @@
+problem = {
+	box = { 6, 5, 2 },
+	pieces = { "F_", "I_", "L_", "N_", "P_", "T_", "U_", "V_", "W_", "X_", "Y_", "Z_" },
+	constrain_z = "F_",
+	lock = "F_",
+	lockcount = 2
+}

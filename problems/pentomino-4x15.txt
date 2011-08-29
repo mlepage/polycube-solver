@@ -1,0 +1,6 @@
+problem = {
+	box = { 15, 4, 1 },
+	pieces = { "F_", "I_", "L_", "N_", "P_", "T_", "U_", "V_", "W_", "X_", "Y_", "Z_" },
+	lock = "F_",
+	lockcount = 2
+}
