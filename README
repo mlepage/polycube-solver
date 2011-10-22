@@ -13,7 +13,8 @@ Run the program as follows:
 
 	lua polycube-solver.lua problems/toy3.txt
 
-Lua binaries are provided for Mac OS X and Windows.
+Lua binaries are provided for Mac OS X and Windows (for convenience; see
+www.lua.org for licensing).
 
 
 PROBLEM
