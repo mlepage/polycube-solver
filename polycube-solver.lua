@@ -1,5 +1,5 @@
 -- Polycube cubic dissection solver
--- Copyright (C) 2009 Marc A. Lepage
+-- Copyright (C) 2009 Marc Lepage
 
 require "bitmatrix"
 local mcreate, mcopy, mget, mset, mprint = bitmatrix.create, bitmatrix.copy, bitmatrix.get, bitmatrix.set, bitmatrix.print

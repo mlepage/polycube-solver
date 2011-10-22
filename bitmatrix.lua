@@ -1,5 +1,5 @@
 -- Bit matrix module
--- Copyright (C) 2009 Marc A. Lepage
+-- Copyright (C) 2009 Marc Lepage
 
 require "bit"
 local band, bor, bnot = bit.band, bit.bor, bit.bnot
